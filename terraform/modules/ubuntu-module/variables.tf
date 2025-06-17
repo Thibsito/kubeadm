@@ -1,5 +1,5 @@
 variable "vm_count" {
-  description = "Le nombre de machines virtuelles SLE-Micro à déployer."
+  description = "Le nombre de machines virtuelles Ubuntu à déployer."
   type        = number
   default     = 1
   validation {

@@ -7,3 +7,4 @@ output "vm_ids" {
   description = "Une liste des IDs des machines virtuelles déployées."
   value       = harvester_virtualmachine.ubuntu[*].id
 }
+

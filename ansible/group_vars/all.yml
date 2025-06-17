@@ -1,0 +1,2 @@
+kubernetes_version: "1.33.0"
+containerd_version: "2.1.2"

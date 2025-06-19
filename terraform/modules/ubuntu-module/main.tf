@@ -70,7 +70,7 @@ resource "harvester_virtualmachine" "ubuntu" {
       version: 2
       ethernets:
       ### Change network interface name if required, eth0 for SUSE, enp1s0 for Ubuntu
-        eth0:
+        enp1s0:
           dhcp4: yes
           nameservers:
             addresses: [${join(", ", var.dns_servers)}]

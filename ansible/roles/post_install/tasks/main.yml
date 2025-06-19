@@ -4,22 +4,20 @@
   become: no
   ansible.builtin.command: "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.1/manifests/tigera-operator.yaml"
   environment:
-    # On indique explicitement où se trouve le fichier de configuration
-    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
   args:
-    # On utilise ansible_user pour la cohérence
-    creates: "/home/{{ ansible_user }}/.kube/calico_operator_applied.flag"
+    creates: "{{ ansible_env.HOME }}/.kube/calico_operator_applied.flag"
 
 - name: "POST-INSTALL | Attendre que le pod de l'opérateur soit prêt"
   become: no
   ansible.builtin.command: "kubectl wait --for=condition=ready pod -l k8s-app=tigera-operator -n tigera-operator --timeout=120s"
   environment:
-    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
 
 - name: "POST-INSTALL | 2. Créer la configuration personnalisée de Calico (avec notre CIDR)"
   become: no
   ansible.builtin.copy:
-    dest: "/home/{{ ansible_user }}/calico_custom_resources.yaml"
+    dest: "{{ ansible_env.HOME }}/calico_custom_resources.yaml"
     content: |
       apiVersion: operator.tigera.io/v1
       kind: Installation
@@ -42,18 +40,27 @@
 
 - name: "POST-INSTALL | Appliquer la ressource personnalisée depuis le fichier"
   become: no
-  ansible.builtin.command: "kubectl apply -f /home/{{ ansible_user }}/calico_custom_resources.yaml"
+  ansible.builtin.command: "kubectl apply -f {{ ansible_env.HOME }}/calico_custom_resources.yaml"
   environment:
-    KUBECONFIG: "/{{ ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
   args:
-    creates: "/{{ ansible_user }}/.kube/calico_crds_applied.flag"
+    creates: "{{ ansible_env.HOME }}/.kube/calico_crds_applied.flag"
 
 - name: "POST-INSTALL | Créer les fichiers flags pour l'idempotence"
   become: no
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ ansible_env.HOME }}/.kube/{{ item }}"
     state: touch
     mode: '0644'
   loop:
-    - "/{{ ansible_user }}/.kube/calico_operator_applied.flag"
-    - "/{{ ansible_user }}/.kube/calico_crds_applied.flag"
+    - "calico_operator_applied.flag"
+    - "calico_crds_applied.flag"
+
+# --- DÉBUT DE L'AJOUT ---
+- name: "POST-INSTALL | Redémarrer le nœud pour finaliser l'installation"
+  become: yes
+  ansible.builtin.reboot:
+    msg: "Redémarrage initié par Ansible après l'installation de Kubernetes."
+    reboot_timeout: 300 # Temps d'attente maximum pour le redémarrage (en secondes)
+    post_reboot_delay: 20 # Pause après que le serveur soit de nouveau en ligne
+# --- FIN DE L'AJOUT ---

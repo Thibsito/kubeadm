@@ -1,0 +1,10 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for roles/workers
+- name: "WORKERS | Joindre les nœuds de travail au cluster Kubernetes"
+  become: yes
+  ansible.builtin.command: "{{ hostvars[groups['kube_control_plane'][0]]['join_command'] }}"
+  args:
+    # Cette condition rend la tâche idempotente.
+    # Si le fichier existe, le nœud a déjà rejoint le cluster et la commande n'est pas ré-exécutée.
+    creates: /etc/kubernetes/kubelet.conf

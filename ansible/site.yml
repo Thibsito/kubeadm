@@ -1,0 +1,23 @@
+- name: Préparer tous les nœuds pour Kubernetes
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Initialiser le Control Plane Kubernetes
+  hosts: kube_control_plane
+  become: yes
+  roles:
+    - control_plane
+
+- name: Joindre les Workers au cluster
+  hosts: kube_workers
+  become: yes
+  roles:
+    - workers
+
+- name: Finaliser l'installation (CNI, etc.)
+  hosts: master1 # On exécute ces tâches depuis un seul nœud
+  become: yes
+  roles:
+    - post_install

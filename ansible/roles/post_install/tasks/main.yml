@@ -1,0 +1,59 @@
+# roles/post_install/tasks/main.yml
+---
+- name: "POST-INSTALL | 1. Appliquer le manifeste de l'opérateur Tigera pour Calico"
+  become: no
+  ansible.builtin.command: "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.1/manifests/tigera-operator.yaml"
+  environment:
+    # On indique explicitement où se trouve le fichier de configuration
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+  args:
+    # On utilise ansible_user pour la cohérence
+    creates: "/home/{{ ansible_user }}/.kube/calico_operator_applied.flag"
+
+- name: "POST-INSTALL | Attendre que le pod de l'opérateur soit prêt"
+  become: no
+  ansible.builtin.command: "kubectl wait --for=condition=ready pod -l k8s-app=tigera-operator -n tigera-operator --timeout=120s"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+
+- name: "POST-INSTALL | 2. Créer la configuration personnalisée de Calico (avec notre CIDR)"
+  become: no
+  ansible.builtin.copy:
+    dest: "/home/{{ ansible_user }}/calico_custom_resources.yaml"
+    content: |
+      apiVersion: operator.tigera.io/v1
+      kind: Installation
+      metadata:
+        name: default
+      spec:
+        calicoNetwork:
+          ipPools:
+          - blockSize: 26
+            cidr: {{ pod_network_cidr }}
+            encapsulation: VXLANCrossSubnet
+            natOutgoing: Enabled
+            nodeSelector: all()
+      ---
+      apiVersion: operator.tigera.io/v1
+      kind: APIServer
+      metadata:
+        name: default
+      spec: {}
+
+- name: "POST-INSTALL | Appliquer la ressource personnalisée depuis le fichier"
+  become: no
+  ansible.builtin.command: "kubectl apply -f /home/{{ ansible_user }}/calico_custom_resources.yaml"
+  environment:
+    KUBECONFIG: "/{{ ansible_user }}/.kube/config"
+  args:
+    creates: "/{{ ansible_user }}/.kube/calico_crds_applied.flag"
+
+- name: "POST-INSTALL | Créer les fichiers flags pour l'idempotence"
+  become: no
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    mode: '0644'
+  loop:
+    - "/{{ ansible_user }}/.kube/calico_operator_applied.flag"
+    - "/{{ ansible_user }}/.kube/calico_crds_applied.flag"

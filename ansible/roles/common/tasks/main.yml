@@ -1,0 +1,143 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for roles/common
+- name: "COMMON | 1. Configuration des prérequis système pour Kubernetes"
+  block:
+    - name: "COMMON | Charger les modules noyau 'overlay' et 'br_netfilter'"
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: "COMMON | Rendre les modules persistants au redémarrage"
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/kubernetes.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: "COMMON | Appliquer les paramètres sysctl pour Kubernetes"
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf
+        state: present
+        reload: true
+      loop:
+        - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { key: 'net.ipv4.ip_forward', value: '1' }
+        - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+  become: yes
+
+- name: "COMMON | 2. Désactiver le swap"
+  block:
+    - name: "COMMON | Désactiver le swap immédiatement"
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: "COMMON | Supprimer le swap du fichier fstab pour le rendre permanent"
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(.*swap.*)$'
+        replace: '# \1'
+  become: yes
+
+- name: "COMMON | 3. Installation et configuration de Containerd (Container Runtime)"
+  block:
+    - name: "COMMON | Installer les paquets prérequis pour containerd"
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: "COMMON | Créer le répertoire pour la clé GPG de Docker"
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: "COMMON | Ajouter la clé GPG officielle de Docker"
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+        force: yes
+
+    - name: "COMMON | Ajouter le repository Docker"
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+        filename: docker
+
+    - name: "COMMON | Installer containerd"
+      ansible.builtin.apt:
+        name: "containerd.io"
+        state: present
+
+    - name: "COMMON | Créer le répertoire de configuration pour containerd"
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: "COMMON | Générer le fichier de configuration par défaut de containerd"
+      ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+
+    - name: "COMMON | Configurer le cgroup driver 'systemd' pour containerd"
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+
+    - name: "COMMON | Redémarrer et activer le service containerd"
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+  become: yes
+
+- name: "COMMON | 4. Installation de kubeadm, kubelet et kubectl"
+  block:
+    - name: "COMMON | Ajouter la clé GPG pour les paquets Kubernetes (nouveau dépôt pkgs.k8s.io)"
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version_major }}/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: '0644'
+        force: yes
+
+    - name: "COMMON | Ajouter le repository Kubernetes"
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version_major }}/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: "COMMON | Installer kubelet, kubeadm et kubectl"
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: yes
+
+    - name: "COMMON | Bloquer la version des paquets Kubernetes"
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+  become: yes
+  vars:
+    # Extrait la version majeure, ex: "1.28" depuis "1.28.2"
+    kubernetes_version_major: "{{ kubernetes_version.split('.')[0] }}.{{ kubernetes_version.split('.')[1] }}"
+
